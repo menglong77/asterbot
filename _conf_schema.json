@@ -1,0 +1,162 @@
+{
+  "database": {
+    "description": "PostgreSQL 数据库配置",
+    "type": "object",
+    "items": {
+      "host": {
+        "type": "string",
+        "default": "postgres",
+        "hint": "Docker Compose 内默认使用 postgres；如果 AstrBot 不在同一网络内运行，改为实际地址。"
+      },
+      "port": {
+        "type": "int",
+        "default": 5432
+      },
+      "database": {
+        "type": "string",
+        "default": "astrbot_memory"
+      },
+      "user": {
+        "type": "string",
+        "default": "astrbot_memory"
+      },
+      "password": {
+        "type": "string",
+        "default": "astrbot_memory"
+      },
+      "min_size": {
+        "type": "int",
+        "default": 1
+      },
+      "max_size": {
+        "type": "int",
+        "default": 5
+      }
+    }
+  },
+  "super_admins": {
+    "description": "超级管理员 QQ",
+    "type": "list",
+    "default": ["123456789"],
+    "items": {
+      "type": "string"
+    }
+  },
+  "embedding_provider_id": {
+    "description": "Embedding 服务提供商",
+    "type": "string",
+    "_special": "select_embedding_provider",
+    "default": "",
+    "hint": "留空时使用 AstrBot 中第一个可用 Embedding Provider。"
+  },
+  "embedding_dim": {
+    "description": "默认向量维度",
+    "type": "int",
+    "default": 1536,
+    "hint": "第一版默认使用 1536 维；如果 Embedding Provider 返回其他维度，插件会自动裁剪或补零到此维度。"
+  },
+  "memory": {
+    "description": "长期记忆配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": true
+      },
+      "summary_threshold": {
+        "type": "int",
+        "default": 30,
+        "hint": "每个会话累计多少条消息后尝试自动总结。"
+      },
+      "search_limit": {
+        "type": "int",
+        "default": 5
+      },
+      "max_context_messages": {
+        "type": "int",
+        "default": 80
+      },
+      "long_memory_prompt": {
+        "type": "text",
+        "default": "请将以下聊天记录总结为一段客观、简洁、可长期保存的记忆，保留人物、群号、事实、偏好和重要事件。"
+      }
+    }
+  },
+  "archive": {
+    "description": "聊天归档配置",
+    "type": "object",
+    "items": {
+      "fetch_count": {
+        "type": "int",
+        "default": 100
+      },
+      "passive_enabled": {
+        "type": "bool",
+        "default": true,
+        "hint": "开启后，插件会把群里新收到的消息自动写入 PostgreSQL 归档表。"
+      },
+      "max_pages_per_group": {
+        "type": "int",
+        "default": 20000
+      },
+      "progress_every_pages": {
+        "type": "int",
+        "default": 5
+      }
+    }
+  },
+  "analysis": {
+    "description": "群分析配置",
+    "type": "object",
+    "items": {
+      "default_days": {
+        "type": "int",
+        "default": 1
+      },
+      "max_days": {
+        "type": "int",
+        "default": 30
+      },
+      "group_list_mode": {
+        "type": "string",
+        "default": "none",
+        "hint": "none=所有群允许；whitelist=只允许 group_list；blacklist=排除 group_list。"
+      },
+      "group_list": {
+        "type": "list",
+        "default": [],
+        "items": {
+          "type": "string"
+        }
+      },
+      "prefer_image": {
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "admin_panel": {
+    "description": "管理面板配置",
+    "type": "object",
+    "items": {
+      "enabled": {
+        "type": "bool",
+        "default": false,
+        "hint": "需要 fastapi/uvicorn。默认关闭，避免占用端口。"
+      },
+      "host": {
+        "type": "string",
+        "default": "0.0.0.0"
+      },
+      "port": {
+        "type": "int",
+        "default": 8787
+      },
+      "token": {
+        "type": "string",
+        "default": "change-me",
+        "hint": "访问 /api/* 时使用 Authorization: Bearer <token>。"
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "database": {
+    "host": "postgres",
+    "port": 5432,
+    "database": "astrbot_memory",
+    "user": "astrbot_memory",
+    "password": "astrbot_memory",
+    "min_size": 1,
+    "max_size": 5
+  },
+  "super_admins": [
+    "123456789"
+  ],
+  "embedding_provider_id": "openai_embedding",
+  "embedding_dim": 1536,
+  "memory": {
+    "enabled": true,
+    "summary_threshold": 30,
+    "search_limit": 5,
+    "max_context_messages": 80,
+    "long_memory_prompt": "请将以下聊天记录总结为一段客观、简洁、可长期保存的记忆，保留人物、群号、事实、偏好和重要事件。"
+  },
+  "archive": {
+    "fetch_count": 100,
+    "passive_enabled": true,
+    "max_pages_per_group": 20000,
+    "progress_every_pages": 5
+  },
+  "analysis": {
+    "default_days": 1,
+    "max_days": 30,
+    "group_list_mode": "none",
+    "group_list": [],
+    "prefer_image": true
+  },
+  "admin_panel": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8787,
+    "token": "change-me"
+  }
+}

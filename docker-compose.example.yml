@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: astrbot-pg-memory-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: astrbot_memory
+      POSTGRES_USER: astrbot_memory
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - pg_memory_data:/var/lib/postgresql/data
+
+volumes:
+  pg_memory_data:

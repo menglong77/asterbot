@@ -1335,6 +1335,27 @@ class PgMemoryPlugin(Star):
         logger.warning(f"[pg_memory] group image send failed: {detail}")
         return False
 
+    async def _send_private_file(self, bot, user_id: str, path: Path, caption: str = "") -> bool:
+        if not bot or not user_id or not path.exists():
+            return False
+        if caption:
+            try:
+                await self._send_private_text(bot, user_id, caption)
+            except Exception as exc:
+                logger.warning(f"[pg_memory] private file caption send failed: {exc}")
+        try:
+            await bot.call_action(
+                "upload_private_file",
+                user_id=int(user_id),
+                file=path.as_posix(),
+                name=path.name,
+            )
+            logger.info(f"[pg_memory] private file sent: {path.name}")
+            return True
+        except Exception as exc:
+            logger.warning(f"[pg_memory] private file send failed: {exc}")
+            return False
+
     def _analysis_allowed(self, event: AstrMessageEvent, group_id: str) -> bool:
         if self._is_super_admin(event):
             return True
@@ -1961,6 +1982,10 @@ class PgMemoryPlugin(Star):
 
         @session_waiter(timeout=120, record_history_chains=False)
         async def waiter(controller: SessionController, selected_event: AstrMessageEvent):
+            try:
+                selected_event.stop_event()
+            except Exception:
+                pass
             text = raw_message_text(selected_event).strip()
             if text in {"~取消", "取消"}:
                 await self._send_private_text(bot, uid, "已取消。")
@@ -2020,8 +2045,13 @@ class PgMemoryPlugin(Star):
         image_bytes = await self._render_report_image(gname, gid, report) if prefer_image else None
         caption = f"📊 来自群 {gid} 的分析报告"
         if private_user:
-            if image_bytes and await self._send_private_image(event.bot, private_user, image_bytes, caption):
-                return
+            if image_bytes:
+                if await self._send_private_image(event.bot, private_user, image_bytes, caption):
+                    return
+                report_image_path = self._save_report_image(image_bytes)
+                file_caption = f"{caption}\n私聊图片消息发送失败，已改为 PNG 文件附件发送。"
+                if await self._send_private_file(event.bot, private_user, report_image_path, file_caption):
+                    return
             await self._send_private_text(event.bot, private_user, caption + "\n" + report)
         else:
             if image_bytes and await self._send_group_image(event.bot, gid, image_bytes, caption):

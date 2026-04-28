@@ -1,4 +1,4 @@
-# astrbot_plugin_pg_memory
+# asterbot / astrbot_plugin_pg_memory
 
 PostgreSQL + pgvector memory plugin for AstrBot.
 

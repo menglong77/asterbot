@@ -10,6 +10,7 @@ import zipfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from sys import maxsize
 from typing import Any
 
 import asyncpg
@@ -21,7 +22,6 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.event.filter import PermissionType
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
-from astrbot.api.util import SessionController, session_waiter
 
 
 PLUGIN_NAME = "astrbot_plugin_pg_memory"
@@ -1108,6 +1108,7 @@ class PgMemoryPlugin(Star):
         self._archive_task: asyncio.Task | None = None
         self._stop_archive = False
         self._background_tasks: set[asyncio.Task] = set()
+        self._pending_group_select: dict[str, dict[str, Any]] = {}
         self._start_task(self._startup(), "pg_memory.startup")
 
     def cfg(self, key: str, default: Any = None) -> Any:
@@ -1394,6 +1395,75 @@ class PgMemoryPlugin(Star):
         threshold = clamp_int(self.cfg("memory", {}).get("summary_threshold"), 30, 2, 10000)
         if count >= threshold:
             self._start_task(self._summarize_session(sid, gid, sender_id_of(event)), f"pg_memory.summary.{sid}")
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=maxsize)
+    async def _handle_pending_group_select(self, event: AstrMessageEvent):
+        key = session_id_of(event)
+        pending = self._pending_group_select.get(key)
+        if not pending:
+            return
+        event.stop_event()
+        if now_ts() > int(pending.get("expires_at") or 0):
+            self._pending_group_select.pop(key, None)
+            future = pending.get("future")
+            if future and not future.done():
+                future.set_exception(TimeoutError("等待超时"))
+            return
+
+        bot = pending["bot"]
+        uid = pending["uid"]
+        groups = pending["groups"]
+        allow_days = bool(pending.get("allow_days"))
+        text = raw_message_text(event).strip()
+        if text in {"~取消", "取消"}:
+            await self._send_private_text(bot, uid, "已取消。")
+            future = pending.get("future")
+            if future and not future.done():
+                future.set_result(None)
+            self._pending_group_select.pop(key, None)
+            return
+
+        m = re.fullmatch(r"~?\s*(\d+)(?:\s+(\d{1,4}|all))?", text, re.I)
+        if not m:
+            await self._send_private_text(bot, uid, "请输入 ~编号，例如 ~1；或回复 ~取消。")
+            return
+        idx = int(m.group(1))
+        if idx < 1 or idx > len(groups):
+            await self._send_private_text(bot, uid, "编号无效，请重新输入。")
+            return
+
+        selected_days = None
+        if allow_days and m.group(2) and m.group(2).lower() != "all":
+            selected_days = clamp_int(
+                m.group(2),
+                1,
+                1,
+                clamp_int(self.cfg("analysis", {}).get("max_days"), 30, 1, 3650),
+            )
+        group = groups[idx - 1]
+        if not self._analysis_allowed(event, group["group_id"]):
+            await self._send_private_text(bot, uid, f"{group['group_name']}({group['group_id']}) 未启用。")
+            future = pending.get("future")
+            if future and not future.done():
+                future.set_result(None)
+            self._pending_group_select.pop(key, None)
+            return
+
+        await self._send_private_text(bot, uid, f"已选择 {group['group_name']}({group['group_id']})，开始处理...")
+        try:
+            result = await pending["handler"](event, group, selected_days)
+            if isinstance(result, int):
+                await self._send_private_text(bot, uid, f"完成，写入 {result} 条。")
+            future = pending.get("future")
+            if future and not future.done():
+                future.set_result(None)
+        except Exception as exc:
+            future = pending.get("future")
+            if future and not future.done():
+                future.set_exception(exc)
+            raise
+        finally:
+            self._pending_group_select.pop(key, None)
 
     async def _passive_archive_message(self, event: AstrMessageEvent) -> None:
         archive_cfg = self.cfg("archive", {})
@@ -1980,43 +2050,24 @@ class PgMemoryPlugin(Star):
         for chunk in split_text("\n".join(lines)):
             await self._send_private_text(bot, uid, chunk)
 
-        @session_waiter(timeout=120, record_history_chains=False)
-        async def waiter(controller: SessionController, selected_event: AstrMessageEvent):
-            try:
-                selected_event.stop_event()
-            except Exception:
-                pass
-            text = raw_message_text(selected_event).strip()
-            if text in {"~取消", "取消"}:
-                await self._send_private_text(bot, uid, "已取消。")
-                controller.stop()
-                return
-            m = re.fullmatch(r"~?\s*(\d+)(?:\s+(\d{1,4}|all))?", text, re.I)
-            if not m:
-                await self._send_private_text(bot, uid, "请输入 ~编号，例如 ~1；或回复 ~取消。")
-                return
-            idx = int(m.group(1))
-            if idx < 1 or idx > len(groups):
-                await self._send_private_text(bot, uid, "编号无效，请重新输入。")
-                return
-            selected_days = None
-            if allow_days and m.group(2) and m.group(2).lower() != "all":
-                selected_days = clamp_int(m.group(2), 1, 1, clamp_int(self.cfg("analysis", {}).get("max_days"), 30, 1, 3650))
-            group = groups[idx - 1]
-            if not self._analysis_allowed(event, group["group_id"]):
-                await self._send_private_text(bot, uid, f"{group['group_name']}({group['group_id']}) 未启用。")
-                controller.stop()
-                return
-            await self._send_private_text(bot, uid, f"已选择 {group['group_name']}({group['group_id']})，开始处理...")
-            result = await handler(selected_event, group, selected_days)
-            if isinstance(result, int):
-                await self._send_private_text(bot, uid, f"完成，写入 {result} 条。")
-            controller.stop()
-
+        key = session_id_of(event)
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        self._pending_group_select[key] = {
+            "bot": bot,
+            "uid": uid,
+            "groups": groups,
+            "handler": handler,
+            "allow_days": allow_days,
+            "future": future,
+            "expires_at": now_ts() + 120,
+        }
         try:
-            await waiter(event)
+            await asyncio.wait_for(future, timeout=120)
         except TimeoutError:
             await self._send_private_text(bot, uid, "选择已超时。")
+        finally:
+            self._pending_group_select.pop(key, None)
 
     async def _run_group_analysis(self, event: AstrMessageEvent, group: dict[str, str], days: int, private_user: str = "") -> None:
         gid = group["group_id"]

@@ -1952,6 +1952,7 @@ class PgMemoryPlugin(Star):
             sync_days = clamp_int(days, 1, 1, 3650)
         gid = group_id_of(event)
         if not gid:
+            event.stop_event()
             async for res in self._private_group_select_flow(event, "请选择要同步记忆的群：", lambda ev, group, ds: self._sync_group_memory(ev, group, sync_days, max_count)):
                 yield res
             return
@@ -2008,6 +2009,7 @@ class PgMemoryPlugin(Star):
         analysis_days = clamp_int(days, default_days, 1, max_days)
         gid = group_id_of(event)
         if not gid:
+            event.stop_event()
             async for res in self._private_group_select_flow(
                 event,
                 f"请选择要分析的群（默认 {analysis_days} 天）：",
